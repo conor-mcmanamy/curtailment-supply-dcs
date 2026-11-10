@@ -1,0 +1,66 @@
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{optidef} % Helps for optimization formulation
+
+\title{Cost-Optimal Data Center Self-Supply Under Curtailment}
+\author{Charles Loriot, Conor McManamy}
+\date{November 10, 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Sets and Indices}
+
+\begin{itemize}
+    \item Generator build candidates: {g \in G }
+    % \item Each year $h$ within a planning horizon $H$
+    \item Curtailment scenarios that could occur over a planning horizon $H$: {\omega \in {\Omega}}
+    \item Duration of the curtailment scenario \omega: t \in {T_\omega}
+\end{itemize}
+
+
+\section{Model}
+
+\begin{mini*}|s|
+{}
+{\sum_{g} C^{P}_{g}(P_g) + C^{E}_{g}(E_g)} 
+{}{} 
++ {\sum_{\omega \in {\Omega}} w_\omega \sum_{t=1}^{T_{\omega}}\sum_g^G(\pi^{MC}_g+\pi^c e_g)\,\theta_{g,\omega,t}+\pi^{UE}u_{\omega,t}}
+\addConstraint{\kappa_\omega D_{\omega, t} = \sum_g\theta_{g,\omega, t} + \sigma_{\omega,t} + u_{\omega,t}} % local power balance
+\addConstraint{0 \leq P_{g} \leq P_{g}^{max}} % build limit
+\addConstraint{0 \leq E_{g} \leq E_{g}^{max}} % energy capacity build limit (MWh diff from MW)
+\addConstraint{\theta_{g,\omega,t} \le \alpha_{\omega,g}P_g} % availability ceiling (cap fac, outage rate, etc)
+\addConstraint{b^{E}_{g,\omega,1}=E_g} % SoC initial condition (starts full)
+\addConstraint{b^{E}_{g,\omega,t+1} - b^{E}_{g,\omega,t} = \theta_{g,\omega,t}/\eta_g} % SoC continuity
+\addConstraint{0\le b^{E}_{g,\omega,t}\le E_g} % SoC min/max
+
+
+\end{mini*}
+
+% TODO / Decide:
+% batteries can charge, diesel fuel needs to be bought => account for cost of per MWh costs. C^E ?
+% (included for now) per-MWh energy capacity cost
+% (excluded) start up costs for units?
+% (excluded) lead time for supply of gen builds
+% (excluded) fuel replacement! currently, just spends budget
+% (included) standalone events, not back-to-back
+
+
+
+\section{Definitions}
+
+\begin{itemize}
+    \item $D_{\omega, t}$ is the baseline load from data center in curtailment scenario $\omega$ in time $t$
+    \item $w_\omega$ represents a weighting factor $w$ for $\omega$'s contribution to $\Omega$
+    \item $u_{\omega,t}$ is the unserved load at $\omega$ and $t$.
+    \item $\theta $ is the load shift performed by the data center.
+    \item $\kappa_{\omega,t} \in [0,1]$ is the required demand reduction (curtailment depth) for a curtailment scenario $\omega$ at time $t$.
+    \item $\alpha_{g,t} \in [0,1]$ is the availability factor for a generator $g$ at time $t$, accounting for intermittency and outage rates.
+    \item ${C^P_{g, h}} = \beta^0 + \beta^1_g\pi^{P, install}_{g} + \beta^2_g\pi^{P, fixed}_{g} $ is the annualized yearly capacity costs that include both fixed O\&M and overnight installed costs for a build candidate $g$. 
+    \item ${C^E_{g, h}}$ is the annualized yearly energy costs that include both fixed O\&M and overnight installed costs for a build candidate $g$. This cost applies to dispatchable and storage resources that draw down an exhaustible supply (fuel or state of charge).
+\end
+
+
+
+\end{document}
