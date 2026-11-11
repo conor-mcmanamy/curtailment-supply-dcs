@@ -1,6 +1,8 @@
 \documentclass{article}
 \usepackage{graphicx} % Required for inserting images
 \usepackage{optidef} % Helps for optimization formulation
+\usepackage{amssymb} % ADDED: for \mathcal
+\usepackage{booktabs} % ADDED: for the scenario table
 
 \title{Cost-Optimal Data Center Self-Supply Under Curtailment}
 \author{Charles Loriot, Conor McManamy}
@@ -10,57 +12,138 @@
 
 \maketitle
 
+\section{Background}
+
+This model captures a stochastic two-stage capacity expansion exercise to illustrate the cost-optimal backup power supply that data centers need to procure to tolerate a range of expected curtailment events.
+
 \section{Sets and Indices}
 
 \begin{itemize}
-    \item Generator build candidates: {g \in G }
-    % \item Each year $h$ within a planning horizon $H$
-    \item Curtailment scenarios that could occur over a planning horizon $H$: {\omega \in {\Omega}}
-    \item Duration of the curtailment scenario \omega: t \in {T_\omega}
+    \item Generator build candidates: ${g \in G }$, with subsets such as $G^{BESS}$, $G^{DIES}$, $G^{VPP}$, and $G^{PV}$.
+    \item Built generators: $G_{built} \subset G$.
+    \item Plausible curtailment scenarios that could occur during a planning horizon $H$, each with varying duration: ${\omega \in {\Omega}}$
+    \begin{itemize}
+        \item $\Omega = H^{0} \times \mathcal{L} \times \mathcal{K}$: each scenario combines a start hour, a duration and a depth, giving $3 \times 7 \times 4 = 84$ scenarios (see Section~3.1) % ADDED
+        \item Start hours: $h^{0}_\omega \in H^{0} = \{4, 5, 6 \text{ p.m.}\}$ % ADDED
+        \item Durations: $L_\omega \in \mathcal{L} = \{3, 4, 5, 6, 7, 8, 9\}$ hours % ADDED
+        \item Depths: $\kappa_\omega \in \mathcal{K} = \{0.25, 0.50, 0.75, 1.0\}$ % ADDED
+    \end{itemize}
+    \item Time steps within any curtailment scenario $\omega$: $t \in \{1,2, ..., {T}\}$, with $T = L_\omega$ the duration of scenario $\omega$ % ADDED: link T to duration
 \end{itemize}
+
+
+\section{Parameters}
+
+\subsection{Curtailment scenarios} % ADDED (whole subsection)
+
+Scenarios aim to be realistic for an ERCOT site. Each scenario $\omega$ is one
+curtailment event, defined by its start hour, its duration and its depth.
+
+\begin{center}
+\small
+\begin{tabular}{ll}
+\toprule
+Dimension & Values \\
+\midrule
+Start hour $h^{0}_\omega$ & 4, 5, 6 p.m. \\
+Duration $L_\omega$ & 3 to 9 h, in 1 h steps \\
+Depth $\kappa_\omega$ & 0.25, 0.50, 0.75, 1.0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+    \item \textbf{Weights.} All 84 combinations of start hour, duration and depth are equally likely: $w_\omega = 1/|\Omega| = 1/84$.
+    \item \textbf{Events per year.} $N = 19$ curtailment events per year (Aurora 2026, North Hub), with $N \in \{6, 38\}$ as sensitivities.
+    \item \textbf{Depth.} Each scenario has one depth, constant over the event: $\kappa_{\omega,t} = \kappa_\omega$ for all $t$. 
+\end{itemize}
+
+\noindent Availability $\alpha_g$ of each resource during a scenario:
+\begin{itemize}
+    \item Diesel ($G^{DIES}$): runs as long as there is fuel ($E_g$).
+    \item Storage, including long-duration ($G^{BESS}$): runs as long as there is charge ($E_g$).
+    \item Solar ($G^{PV}$): runs on a representative site-agnostic solar output profile.
+    \item VPP ($G^{VPP}$): participation rate set by the time of day, then degrading linearly with the duration of the event, $\alpha^{VPP}_t = \alpha^{VPP}_{hr} - \delta(t)$.
+    \item Availability does not change across scenarios beyond these hourly profiles.
+\end{itemize}
+
+\section{Objective Function}
+% ADDED (whole section)
+
+\begin{equation}
+\begin{split}
+\min_{P, E, \theta, b^{E}, \sigma, u} \quad
+& \sum_{g \in G} \left( C^{P}_{g} P_g + C^{E}_{g} E_g \right) \\
+& + N \sum_{\omega \in \Omega} w_\omega \sum_{t=1}^{T} \Big[ \sum_{g \in G} \left( \pi^{MC}_g + \pi^{c} e_g \right) \theta_{g,\omega,t} + \pi^{UE} u_{\omega,t} \Big]
+\end{split}
+\end{equation}
+
+\section{Constraints}
+% ADDED (whole section, from the constraints in the Model block). G^E = G^DIES and G^BESS (candidates with an energy limit).
+
+\noindent Here $G^{E} = G^{DIES} \cup G^{BESS}$ are the candidates with an energy limit (fuel or charge), and $t$ runs over the hours of each scenario.
+
+\begin{align}
+& (\kappa_{\omega,t} - \sigma_{\omega,t}) D_{\omega,t} = \sum_{g \in G} \theta_{g,\omega,t} + u_{\omega,t} && \forall \omega, t \\
+& 0 \le P_g \le P^{max}_g && \forall g \in G \\
+& 0 \le E_g \le E^{max}_g && \forall g \in G^{E} \\
+& 0 \le \theta_{g,\omega,t} \le \alpha_{g,\omega,t} P_g && \forall g \in G, \omega, t \\
+& b^{E}_{g,\omega,1} = E_g && \forall g \in G^{E}, \omega \\
+& b^{E}_{g,\omega,t+1} = b^{E}_{g,\omega,t} - \theta_{g,\omega,t} / \eta_g && \forall g \in G^{E}, \omega, t \\
+& 0 \le b^{E}_{g,\omega,t} \le E_g && \forall g \in G^{E}, \omega, t \\
+& 0 \le \sigma_{\omega,t} \le \sigma^{max} && \forall \omega, t \\
+& u_{\omega,t} \ge 0 && \forall \omega, t
+\end{align}
+
+\begin{enumerate}
+    \item Power balance: in every hour of an event, backup output plus unserved load covers the curtailed load that is not shifted.
+    \item Power build limit: the MW built or contracted stays within what can be sited or procured.
+    \item Energy build limit: the fuel tank or storage size (MWh) stays within what can be built.
+    \item Availability: output cannot exceed the available share of capacity (solar decline, VPP participation, outages).
+    \item Starting level: fuel and storage start every event full.
+    \item Energy tracking: fuel or charge drops each hour by the output divided by its efficiency.
+    \item Energy bounds: fuel or charge stays between empty and the size built.
+    \item Load shift limit: the data center can shift at most a set share of its load.
+    \item Unserved load cannot be negative.
+\end{enumerate}
+
+\section{Problem class, solver, and other details}
+
+\textbf{Problem class.} Two-stage stochastic linear program (LP). The first stage determines investments in capacity and energy resources and incurs annualized investment and fixed O\&M costs. The first stage determines the build of each backup option ($P_g$, $E_g$). The second stage averages cost for operation ($\theta$, $b^{E}$, $\sigma$, $u$) throughout each curtailment event scenario. All scenarios are solved together in one model, and since every cost and constraint is linear, the problem is an LP and solves exactly. 
+
+\textbf{Solver.} Gurobi, a commercial mathematical optimization tool. 
+
+\section{Exclusions}
+
+The model makes the following assumptions:
+
+\begin{enumerate}
+    \item fuel and stored state of charge are always at peak at the beginning of each curtailment scenario.
+    \item events are small enough such that load shifting can defer workload outside of the curtailment event without violating quality-of-service.
+    \item resources have negligible start-up costs on the hourly timescale.
+    \item events are sufficiently rare so as to allow a full recovery between them. In other words, events are standalone, not back-to-back. 
+    \item capacity expansion decisions are continuous. Discreteness would force a MILP formulation.
+    \item no grid conditions are considered, beyond those proxied for by each curtailment event.
+\end{enumerate}
+
 
 
 \section{Model}
 
 \begin{mini*}|s|
-{}
-{\sum_{g} C^{P}_{g}(P_g) + C^{E}_{g}(E_g)} 
-{}{} 
-+ {\sum_{\omega \in {\Omega}} w_\omega \sum_{t=1}^{T_{\omega}}\sum_g^G(\pi^{MC}_g+\pi^c e_g)\,\theta_{g,\omega,t}+\pi^{UE}u_{\omega,t}}
-\addConstraint{\kappa_\omega D_{\omega, t} = \sum_g\theta_{g,\omega, t} + \sigma_{\omega,t} + u_{\omega,t}} % local power balance
-\addConstraint{0 \leq P_{g} \leq P_{g}^{max}} % build limit
-\addConstraint{0 \leq E_{g} \leq E_{g}^{max}} % energy capacity build limit (MWh diff from MW)
-\addConstraint{\theta_{g,\omega,t} \le \alpha_{\omega,g}P_g} % availability ceiling (cap fac, outage rate, etc)
-\addConstraint{b^{E}_{g,\omega,1}=E_g} % SoC initial condition (starts full)
-\addConstraint{b^{E}_{g,\omega,t+1} - b^{E}_{g,\omega,t} = \theta_{g,\omega,t}/\eta_g} % SoC continuity
-\addConstraint{0\le b^{E}_{g,\omega,t}\le E_g} % SoC min/max
-
-
+{P, E, \theta, b^{E}, \sigma, u}
+{\sum_{g \in G} \left( C^{P}_{g} P_g + C^{E}_{g} E_g \right)}
+{}{}
+\breakObjective{+ N \sum_{\omega \in \Omega} w_\omega \sum_{t=1}^{T} \Big[ \sum_{g \in G} \left( \pi^{MC}_g + \pi^{c} e_g \right) \theta_{g,\omega,t} + \pi^{UE} u_{\omega,t} \Big]}
+\addConstraint{(\kappa_{\omega,t} - \sigma_{\omega,t}) D_{\omega,t}}{= \sum_{g \in G} \theta_{g,\omega,t} + u_{\omega,t}}{\quad \forall \omega, t}
+\addConstraint{0 \le P_g}{\le P^{max}_g}{\quad \forall g \in G}
+\addConstraint{0 \le E_g}{\le E^{max}_g}{\quad \forall g \in G^{E}}
+\addConstraint{0 \le \theta_{g,\omega,t}}{\le \alpha_{g,\omega,t} P_g}{\quad \forall g \in G, \omega, t}
+\addConstraint{b^{E}_{g,\omega,1}}{= E_g}{\quad \forall g \in G^{E}, \omega}
+\addConstraint{b^{E}_{g,\omega,t+1}}{= b^{E}_{g,\omega,t} - \theta_{g,\omega,t} / \eta_g}{\quad \forall g \in G^{E}, \omega, t}
+\addConstraint{0 \le b^{E}_{g,\omega,t}}{\le E_g}{\quad \forall g \in G^{E}, \omega, t}
+\addConstraint{0 \le \sigma_{\omega,t}}{\le \sigma^{max}}{\quad \forall \omega, t}
+\addConstraint{u_{\omega,t}}{\ge 0}{\quad \forall \omega, t}
 \end{mini*}
-
-% TODO / Decide:
-% batteries can charge, diesel fuel needs to be bought => account for cost of per MWh costs. C^E ?
-% (included for now) per-MWh energy capacity cost
-% (excluded) start up costs for units?
-% (excluded) lead time for supply of gen builds
-% (excluded) fuel replacement! currently, just spends budget
-% (included) standalone events, not back-to-back
-
-
-
-\section{Definitions}
-
-\begin{itemize}
-    \item $D_{\omega, t}$ is the baseline load from data center in curtailment scenario $\omega$ in time $t$
-    \item $w_\omega$ represents a weighting factor $w$ for $\omega$'s contribution to $\Omega$
-    \item $u_{\omega,t}$ is the unserved load at $\omega$ and $t$.
-    \item $\theta $ is the load shift performed by the data center.
-    \item $\kappa_{\omega,t} \in [0,1]$ is the required demand reduction (curtailment depth) for a curtailment scenario $\omega$ at time $t$.
-    \item $\alpha_{g,t} \in [0,1]$ is the availability factor for a generator $g$ at time $t$, accounting for intermittency and outage rates.
-    \item ${C^P_{g, h}} = \beta^0 + \beta^1_g\pi^{P, install}_{g} + \beta^2_g\pi^{P, fixed}_{g} $ is the annualized yearly capacity costs that include both fixed O\&M and overnight installed costs for a build candidate $g$. 
-    \item ${C^E_{g, h}}$ is the annualized yearly energy costs that include both fixed O\&M and overnight installed costs for a build candidate $g$. This cost applies to dispatchable and storage resources that draw down an exhaustible supply (fuel or state of charge).
-\end
-
-
 
 \end{document}
